@@ -1,3 +1,4 @@
+
 #!/usr/bin/python3
 '''
     Implementation of the Amenity class
@@ -13,8 +14,8 @@ class Amenity(BaseModel, Base):
     '''
         Implementation for the Amenities.
     '''
-    __tablename__ = 'amenities'
     if os.getenv('HBNB_TYPE_STORAGE') == 'db':
+        ·__tablename__·=·'amenities'
         name = Column(String(128), nullable=False, default="")
         place_amenities = relationship(
             "Place", secondary=place_amenity)
