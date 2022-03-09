@@ -36,9 +36,9 @@ class Place(BaseModel, Base):
         longitude (float): Longitude.
         amenity_ids (list of str): List of amenities.
     """
-    __tablename__ = "places"
 
     if os.getenv('HBNB_TYPE_STORAGE') == 'db':
+        __tablename__ = "places"
         reviews = relationship("Review", passive_deletes=True, backref="place")
         amenities = relationship(
             "Amenity", secondary=place_amenity,
