@@ -1,96 +1,115 @@
 #!/usr/bin/python3
-"""DBStorage class that sets up SQLAlchemy and connects with database"""
-import os
-from sqlalchemy import (create_engine)
-from sqlalchemy.orm import sessionmaker, scoped_session
-from models.base_model import Base
-from models.user import User
-from models.state import State
-from models.city import City
+"""
+mysql DB storage engine
+"""
+
+from os import environ
+from models.base_model import BaseModel, Base
 from models.amenity import Amenity
+from models.city import City
 from models.place import Place
 from models.review import Review
-from models import classes
-import models
+from models.state import State
+from models.user import User
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session
+
+hbuser = environ.get('HBNB_MYSQL_USER')
+hbpw = environ.get('HBNB_MYSQL_PWD')
+hbhost = environ.get('HBNB_MYSQL_HOST')
+hbdb = environ.get('HBNB_MYSQL_DB')
 
 
 class DBStorage:
-    """
-    DBStorage class
-    """
+    """handles long term storage in mysql database"""
+
     __engine = None
     __session = None
+    CNC = {
+        'Amenity': Amenity,
+        'City': City,
+        'Place': Place,
+        'Review': Review,
+        'State': State,
+        'User': User
+    }
+    """CNC - this variable is a dictionary with:
+    keys: Class Names
+    values: Class type (used for instantiation)
+    """
 
     def __init__(self):
-        """
-        Initializes database connection
-        """
-        user_name = os.getenv("HBNB_MYSQL_USER")
-        pwd = os.getenv("HBNB_MYSQL_PWD")
-        host = os.getenv("HBNB_MYSQL_HOST")
-        db = os.getenv("HBNB_MYSQL_DB")
-
-        self.__engine = create_engine(
-            'mysql+mysqldb://{}:{}@{}/{}'.format(
-                user_name, pwd, host, db), pool_pre_ping=True)
-
-        if os.getenv("HBNB_ENV") == 'test':
-            Base.metadata.drop_all(bind=self.__engine)
+        """instantiation of mysql DB as python object"""
+        self.__engine = create_engine('mysql+mysqldb://{}:{}@{}:3306/{}'
+                                      .format(hbuser, hbpw, hbhost, hbdb))
+        if environ.get('HBNB_ENV') == 'test':
+            Base.metadata.drop_all(self.__engine)
 
     def all(self, cls=None):
-        """
-        Retrieves dictionary of objects in database
-        Args:
-            cls (obj): class of objects to be queried
-        Returns:
-            dictionary of objects
-        """
-        objs_dict = {}
-        objs = [v for k, v in classes.items()]
+        """queries all objects in DB session depending on the class name"""
+        d = {}
         if cls:
-            if isinstance(cls, str):
-                cls = classes[cls]
-            objs = [cls]
-        for c in objs:
-            for instance in self.__session.query(c):
-                key = str(instance.__class__.__name__) + "." + str(instance.id)
-                objs_dict[key] = instance
-        return (objs_dict)
+            a_query = self.__session.query(DBStorage.CNC[cls])
+            for obj in a_query:
+                obj_ref = "{}.{}".format(type(obj).__name__, obj.id)
+                d[obj_ref] = obj
+            return d
+        for c in DBStorage.CNC.values():
+            a_query = self.__session.query(c)
+            for obj in a_query:
+                obj_ref = "{}.{}".format(type(obj).__name__, obj.id)
+                d[obj_ref] = obj
+        return d
 
     def new(self, obj):
+        """add the object to the current DB session"""
+        if obj:
+            self.__session.add(obj)
+
+    def __remove_duplicates(self):
+        """removes duplicates to avoid Duplicate entry Exception"""
         """
-        Creates a query on current db session depending on class name
+        for obj in self.__dict__.values():
+            for val in obj.__dict__.values():
+                print(type(val).__name__)
+                if type(val).__name__ == 'InstrumentedList':
+                    print(type(val).__name__)
+                    for x in val:
+                        if val.count(x) > 1:
+                            print('before: {}'.format(val))
+                            val.remove(x)
+                            print('after: {}'.format(val))
         """
-        self.__session.add(obj)
 
     def save(self):
-        """
-        commit all changes of the current db session
-        """
+        """commit all changes of the current DB session"""
         self.__session.commit()
 
+    def reload(self):
+        """create all tables in DB & create current DB session from engine"""
+        Base.metadata.create_all(self.__engine)
+        Session = sessionmaker(bind=self.__engine, expire_on_commit=False)
+        self.__session = scoped_session(Session)
+
     def delete(self, obj=None):
-        """
-        delete from current db session obj if not none
-        """
+        """delete from the current DB session"""
         if obj:
             self.__session.delete(obj)
-            self.save()
 
-    def reload(self):
-        """
-        create all tb in db
-        create current db session and is thread safe
-        """
-        Base.metadata.create_all(self.__engine)
-        session_factory = sessionmaker(bind=self.__engine,
-                                       expire_on_commit=False)
-        Session = scoped_session(session_factory)
-        self.__session = Session()
+    def delete_all(self):
+        """deletes all stored objects, for testing purposes"""
+        for c in DBStorage.CNC.values():
+            a_query = self.__session.query(c)
+            all_objs = [obj for obj in a_query]
+            for obj in range(len(all_objs)):
+                to_delete = all_objs.pop(0)
+                to_delete.delete()
+        self.save()
+
+    def rollback_session(self):
+        """rollsback a session in the event of an exception"""
+        self.__session.rollback()
 
     def close(self):
-        """
-        calls remove() method on the pricate session attribute
-        """
-        if self.__session:
-            self.__session.close()
+        self.__session = scoped_session(sessionmaker(bind=self.__engine))
+        self.__session.remove()
